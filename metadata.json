@@ -1,0 +1,6 @@
+{
+  "name": "清糖笔记 · 个人血糖管理",
+  "description": "便捷记录每次血糖测量结果，提供TIR达标率、24小时时段波动分析、趋势图表与复诊报告导出的个人血糖管理工具。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

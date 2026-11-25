@@ -1,0 +1,220 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default deny all reads and writes
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidUserSettings(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'displayName',
+          'unit',
+          'fastingLow',
+          'fastingHigh',
+          'postMealLow',
+          'postMealHigh',
+          'generalLow',
+          'generalHigh',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'unit',
+          'fastingLow',
+          'fastingHigh',
+          'postMealLow',
+          'postMealHigh',
+          'generalLow',
+          'generalHigh',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.uid is string &&
+        data.uid.size() >= 1 &&
+        data.uid.size() <= 128 &&
+        isValidId(data.uid) &&
+        data.uid == request.auth.uid &&
+        data.uid == userId &&
+        data.displayName is string &&
+        data.displayName.size() <= 80 &&
+        data.unit is string &&
+        data.unit.size() <= 10 &&
+        data.unit in ['mmol/L', 'mg/dL'] &&
+        data.fastingLow is number &&
+        data.fastingLow >= 1.0 &&
+        data.fastingLow <= 20.0 &&
+        data.fastingHigh is number &&
+        data.fastingHigh > data.fastingLow &&
+        data.fastingHigh <= 30.0 &&
+        data.postMealLow is number &&
+        data.postMealLow >= 1.0 &&
+        data.postMealLow <= 20.0 &&
+        data.postMealHigh is number &&
+        data.postMealHigh > data.postMealLow &&
+        data.postMealHigh <= 35.0 &&
+        data.generalLow is number &&
+        data.generalLow >= 1.0 &&
+        data.generalLow <= 20.0 &&
+        data.generalHigh is number &&
+        data.generalHigh > data.generalLow &&
+        data.generalHigh <= 35.0 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidGlucoseRecord(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'valueMmol',
+          'context',
+          'measuredAtMs',
+          'note',
+          'mealLevel',
+          'exerciseLevel',
+          'medicationTaken',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'valueMmol',
+          'context',
+          'measuredAtMs',
+          'note',
+          'mealLevel',
+          'exerciseLevel',
+          'medicationTaken',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.uid is string &&
+        data.uid.size() >= 1 &&
+        data.uid.size() <= 128 &&
+        isValidId(data.uid) &&
+        data.uid == request.auth.uid &&
+        data.uid == userId &&
+        data.valueMmol is number &&
+        data.valueMmol >= 0.5 &&
+        data.valueMmol <= 40.0 &&
+        data.context is string &&
+        data.context.size() <= 30 &&
+        data.context in [
+          'fasting',
+          'before_breakfast',
+          'after_breakfast',
+          'before_lunch',
+          'after_lunch',
+          'before_dinner',
+          'after_dinner',
+          'bedtime',
+          'random'
+        ] &&
+        data.measuredAtMs is number &&
+        data.measuredAtMs > 0 &&
+        data.note is string &&
+        data.note.size() <= 200 &&
+        data.mealLevel is string &&
+        data.mealLevel.size() <= 20 &&
+        data.mealLevel in ['none', 'light', 'normal', 'heavy'] &&
+        data.exerciseLevel is string &&
+        data.exerciseLevel.size() <= 20 &&
+        data.exerciseLevel in ['none', 'light', 'moderate', 'intense'] &&
+        data.medicationTaken is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserSettings(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserSettings(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'displayName',
+            'unit',
+            'fastingLow',
+            'fastingHigh',
+            'postMealLow',
+            'postMealHigh',
+            'generalLow',
+            'generalHigh',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      match /glucoseRecords/{recordId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(recordId);
+        allow list: if isOwner(userId) && isValidId(userId) && existing().uid == request.auth.uid;
+
+        allow create: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(recordId) &&
+          isValidGlucoseRecord(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(recordId) &&
+          isValidGlucoseRecord(incoming(), userId) &&
+          incoming().uid == existing().uid &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'valueMmol',
+              'context',
+              'measuredAtMs',
+              'note',
+              'mealLevel',
+              'exerciseLevel',
+              'medicationTaken',
+              'updatedAt'
+            ])
+          ) &&
+          exists(/databases/$(database)/documents/users/$(userId));
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(recordId);
+      }
+    }
+  }
+}

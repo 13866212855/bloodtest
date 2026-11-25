@@ -1,0 +1,169 @@
+{
+  "entities": {
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "Personal blood glucose management preferences and target ranges for an authenticated user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name.",
+          "minLength": 0,
+          "maxLength": 80
+        },
+        "unit": {
+          "type": "string",
+          "description": "Preferred blood glucose display unit.",
+          "enum": ["mmol/L", "mg/dL"]
+        },
+        "fastingLow": {
+          "type": "number",
+          "description": "Lower bound of target fasting blood glucose in mmol/L."
+        },
+        "fastingHigh": {
+          "type": "number",
+          "description": "Upper bound of target fasting blood glucose in mmol/L."
+        },
+        "postMealLow": {
+          "type": "number",
+          "description": "Lower bound of target post-meal blood glucose in mmol/L."
+        },
+        "postMealHigh": {
+          "type": "number",
+          "description": "Upper bound of target post-meal blood glucose in mmol/L."
+        },
+        "generalLow": {
+          "type": "number",
+          "description": "Lower bound of general target range (TIR) in mmol/L."
+        },
+        "generalHigh": {
+          "type": "number",
+          "description": "Upper bound of general target range (TIR) in mmol/L."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "unit",
+        "fastingLow",
+        "fastingHigh",
+        "postMealLow",
+        "postMealHigh",
+        "generalLow",
+        "generalHigh",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GlucoseRecord": {
+      "title": "GlucoseRecord",
+      "description": "A single blood glucose measurement record with meal context and lifestyle tags.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "valueMmol": {
+          "type": "number",
+          "description": "Canonical blood glucose value in mmol/L (0.5 to 40.0)."
+        },
+        "context": {
+          "type": "string",
+          "description": "Measurement period relative to meals/sleep.",
+          "enum": [
+            "fasting",
+            "before_breakfast",
+            "after_breakfast",
+            "before_lunch",
+            "after_lunch",
+            "before_dinner",
+            "after_dinner",
+            "bedtime",
+            "random"
+          ]
+        },
+        "measuredAtMs": {
+          "type": "number",
+          "description": "Measurement epoch timestamp in milliseconds."
+        },
+        "note": {
+          "type": "string",
+          "description": "Optional user note describing diet, mood, or symptoms.",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "mealLevel": {
+          "type": "string",
+          "description": "Diet intake tag.",
+          "enum": ["none", "light", "normal", "heavy"]
+        },
+        "exerciseLevel": {
+          "type": "string",
+          "description": "Exercise intensity tag.",
+          "enum": ["none", "light", "moderate", "intense"]
+        },
+        "medicationTaken": {
+          "type": "boolean",
+          "description": "Whether scheduled medication or insulin was taken."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp."
+        }
+      },
+      "required": [
+        "uid",
+        "valueMmol",
+        "context",
+        "measuredAtMs",
+        "note",
+        "mealLevel",
+        "exerciseLevel",
+        "medicationTaken",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserSettings"
+      },
+      "description": "Stores personal target glucose ranges and display preferences for each user."
+    },
+    "/users/{userId}/glucoseRecords/{recordId}": {
+      "schema": {
+        "$ref": "#/entities/GlucoseRecord"
+      },
+      "description": "Stores individual blood glucose measurement entries owned by the parent user."
+    }
+  }
+}

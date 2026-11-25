@@ -1,0 +1,440 @@
+'use client';
+
+import React, { useState } from 'react';
+import { Check, CloudUpload, Database, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  DEFAULT_USER_SETTINGS,
+  displayNumericValue,
+  mgdlToMmol,
+} from '@/lib/glucose-utils';
+import type { GlucoseUnit, UserSettings } from '@/lib/types';
+
+interface SettingsViewProps {
+  settings: UserSettings;
+  isCloudMode: boolean;
+  userEmail: string | null;
+  localDraftCount: number;
+  recordCount: number;
+  onUpdateSettings: (partial: Partial<Omit<UserSettings, 'uid'>>) => Promise<void>;
+  onSignIn: () => Promise<void>;
+  onSignOut: () => Promise<void>;
+  onImportLocalToCloud: () => Promise<number>;
+  onImportSampleData: () => Promise<void>;
+  onClearLocalRecords: () => void;
+}
+
+const PRESETS = [
+  {
+    id: 'standard',
+    name: '成人标准控糖目标',
+    desc: '空腹 3.9–6.1 · 餐后2h 3.9–7.8 · 通用 3.9–10.0 mmol/L',
+    values: {
+      fastingLow: 3.9,
+      fastingHigh: 6.1,
+      postMealLow: 3.9,
+      postMealHigh: 7.8,
+      generalLow: 3.9,
+      generalHigh: 10.0,
+    },
+  },
+  {
+    id: 'relaxed',
+    name: '温和/老年控糖目标',
+    desc: '空腹 4.4–7.0 · 餐后2h 4.4–10.0 · 通用 4.4–10.0 mmol/L',
+    values: {
+      fastingLow: 4.4,
+      fastingHigh: 7.0,
+      postMealLow: 4.4,
+      postMealHigh: 10.0,
+      generalLow: 4.4,
+      generalHigh: 10.0,
+    },
+  },
+  {
+    id: 'strict',
+    name: '精细控糖目标',
+    desc: '空腹 3.9–5.6 · 餐后2h 3.9–7.2 · 通用 3.9–7.8 mmol/L',
+    values: {
+      fastingLow: 3.9,
+      fastingHigh: 5.6,
+      postMealLow: 3.9,
+      postMealHigh: 7.2,
+      generalLow: 3.9,
+      generalHigh: 7.8,
+    },
+  },
+];
+
+export function SettingsView(props: SettingsViewProps) {
+  const { settings } = props;
+  const settingsKey = `${settings.unit}_${settings.fastingLow}_${settings.fastingHigh}_${settings.postMealLow}_${settings.postMealHigh}_${settings.generalLow}_${settings.generalHigh}_${settings.displayName}`;
+  return <SettingsViewInner key={settingsKey} {...props} />;
+}
+
+function SettingsViewInner({
+  settings,
+  isCloudMode,
+  userEmail,
+  localDraftCount,
+  recordCount,
+  onUpdateSettings,
+  onSignIn,
+  onSignOut,
+  onImportLocalToCloud,
+  onImportSampleData,
+  onClearLocalRecords,
+}: SettingsViewProps) {
+  const isMgdl = settings.unit === 'mg/dL';
+
+  const [displayName, setDisplayName] = useState(settings.displayName);
+  const [unit, setUnit] = useState<GlucoseUnit>(settings.unit);
+  const [fastingLow, setFastingLow] = useState(() =>
+    String(displayNumericValue(settings.fastingLow, settings.unit))
+  );
+  const [fastingHigh, setFastingHigh] = useState(() =>
+    String(displayNumericValue(settings.fastingHigh, settings.unit))
+  );
+  const [postMealLow, setPostMealLow] = useState(() =>
+    String(displayNumericValue(settings.postMealLow, settings.unit))
+  );
+  const [postMealHigh, setPostMealHigh] = useState(() =>
+    String(displayNumericValue(settings.postMealHigh, settings.unit))
+  );
+  const [generalLow, setGeneralLow] = useState(() =>
+    String(displayNumericValue(settings.generalLow, settings.unit))
+  );
+  const [generalHigh, setGeneralHigh] = useState(() =>
+    String(displayNumericValue(settings.generalHigh, settings.unit))
+  );
+
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [confirmClearLocal, setConfirmClearLocal] = useState(false);
+
+  const handleUnitChange = async (nextUnit: GlucoseUnit) => {
+    setUnit(nextUnit);
+    await onUpdateSettings({ unit: nextUnit });
+    setFeedback(`已切换显示单位为 ${nextUnit}`);
+  };
+
+  const toCanonicalMmol = (valStr: string, fallbackMmol: number) => {
+    const num = Number(valStr);
+    if (!Number.isFinite(num) || num <= 0) return fallbackMmol;
+    const mmol = isMgdl ? mgdlToMmol(num) : Math.round(num * 10) / 10;
+    return Math.min(30, Math.max(1, mmol));
+  };
+
+  const handleSaveTargets = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setFeedback(null);
+    try {
+      await onUpdateSettings({
+        displayName: displayName.trim() || '控糖用户',
+        unit,
+        fastingLow: toCanonicalMmol(fastingLow, DEFAULT_USER_SETTINGS.fastingLow),
+        fastingHigh: toCanonicalMmol(fastingHigh, DEFAULT_USER_SETTINGS.fastingHigh),
+        postMealLow: toCanonicalMmol(postMealLow, DEFAULT_USER_SETTINGS.postMealLow),
+        postMealHigh: toCanonicalMmol(postMealHigh, DEFAULT_USER_SETTINGS.postMealHigh),
+        generalLow: toCanonicalMmol(generalLow, DEFAULT_USER_SETTINGS.generalLow),
+        generalHigh: toCanonicalMmol(generalHigh, DEFAULT_USER_SETTINGS.generalHigh),
+      });
+      setFeedback('个人控糖目标与偏好已保存');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const applyPreset = async (presetValues: (typeof PRESETS)[number]['values']) => {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      await onUpdateSettings(presetValues);
+      setFeedback('已应用控糖目标模板');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      {/* Left: Target range settings */}
+      <form
+        onSubmit={handleSaveTargets}
+        className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6 space-y-6"
+      >
+        <div>
+          <h3 className="text-base font-semibold text-slate-900">个性化控糖目标与单位</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            所有趋势图、达标率 (TIR) 与记录评估均以此目标区间为基准。建议遵循主治医师为您设定的个体化标准。
+          </p>
+        </div>
+
+        {/* Unit & Nickname */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label htmlFor="settingsDisplayName" className="block text-xs font-medium text-slate-700">
+              个人称呼（用于复诊报表抬头）
+            </label>
+            <input
+              id="settingsDisplayName"
+              type="text"
+              maxLength={80}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="w-full px-3 py-2 text-sm text-slate-900 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-teal-600"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="block text-xs font-medium text-slate-700">血糖显示单位</span>
+            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
+              {(['mmol/L', 'mg/dL'] as const).map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => handleUnitChange(u)}
+                  className={`py-1.5 text-xs font-mono font-medium rounded-md transition-colors whitespace-nowrap ${
+                    unit === u
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Preset buttons */}
+        <div className="space-y-2">
+          <span className="block text-xs font-medium text-slate-700">快速套用临床常用目标模板</span>
+          <div className="grid grid-cols-1 gap-2">
+            {PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => applyPreset(p.values)}
+                className="text-left px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 rounded-lg transition-colors flex items-center justify-between gap-3"
+              >
+                <div>
+                  <div className="text-xs font-semibold text-slate-800">{p.name}</div>
+                  <div className="text-xs text-slate-500 mt-0.5 font-mono tabular-nums">
+                    {p.desc}
+                  </div>
+                </div>
+                <span className="text-xs font-medium text-teal-700 whitespace-nowrap shrink-0">
+                  套用
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Custom range inputs */}
+        <div className="space-y-4 pt-2 border-t border-slate-100">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-slate-700">
+                空腹 / 餐前目标 ({unit})
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  step={isMgdl ? '1' : '0.1'}
+                  value={fastingLow}
+                  onChange={(e) => setFastingLow(e.target.value)}
+                  className="w-full px-2.5 py-2 text-sm font-mono tabular-nums border border-slate-200 rounded-lg"
+                />
+                <span className="text-slate-400 text-xs">–</span>
+                <input
+                  type="number"
+                  step={isMgdl ? '1' : '0.1'}
+                  value={fastingHigh}
+                  onChange={(e) => setFastingHigh(e.target.value)}
+                  className="w-full px-2.5 py-2 text-sm font-mono tabular-nums border border-slate-200 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-slate-700">
+                餐后 2 小时目标 ({unit})
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  step={isMgdl ? '1' : '0.1'}
+                  value={postMealLow}
+                  onChange={(e) => setPostMealLow(e.target.value)}
+                  className="w-full px-2.5 py-2 text-sm font-mono tabular-nums border border-slate-200 rounded-lg"
+                />
+                <span className="text-slate-400 text-xs">–</span>
+                <input
+                  type="number"
+                  step={isMgdl ? '1' : '0.1'}
+                  value={postMealHigh}
+                  onChange={(e) => setPostMealHigh(e.target.value)}
+                  className="w-full px-2.5 py-2 text-sm font-mono tabular-nums border border-slate-200 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-slate-700">
+                全天 TIR 目标 ({unit})
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  step={isMgdl ? '1' : '0.1'}
+                  value={generalLow}
+                  onChange={(e) => setGeneralLow(e.target.value)}
+                  className="w-full px-2.5 py-2 text-sm font-mono tabular-nums border border-slate-200 rounded-lg"
+                />
+                <span className="text-slate-400 text-xs">–</span>
+                <input
+                  type="number"
+                  step={isMgdl ? '1' : '0.1'}
+                  value={generalHigh}
+                  onChange={(e) => setGeneralHigh(e.target.value)}
+                  className="w-full px-2.5 py-2 text-sm font-mono tabular-nums border border-slate-200 rounded-lg"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 pt-2 border-t border-slate-100">
+          <span className="text-xs text-emerald-700 font-medium">{feedback ?? ''}</span>
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap"
+          >
+            <Check className="w-4 h-4" />
+            {saving ? '保存中...' : '保存设置'}
+          </button>
+        </div>
+      </form>
+
+      {/* Right: Cloud sync & data tools */}
+      <div className="lg:col-span-5 space-y-5">
+        <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+          <div className="flex items-center gap-2.5">
+            <Database className="w-4 h-4 text-teal-700 shrink-0" />
+            <h3 className="text-base font-semibold text-slate-900">云端账户与数据同步</h3>
+          </div>
+
+          {isCloudMode ? (
+            <div className="space-y-4">
+              <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-lg text-xs space-y-1">
+                <div className="font-medium text-slate-800">已连接云端个人加密存储</div>
+                <div className="text-slate-500">当前账号：{userEmail}</div>
+                <div className="text-slate-500 font-mono tabular-nums">
+                  云端已存记录：{recordCount} 条
+                </div>
+              </div>
+
+              {localDraftCount > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const count = await onImportLocalToCloud();
+                    setFeedback(`已将 ${count} 条本地新增记录同步到云端`);
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-lg transition-colors"
+                >
+                  <CloudUpload className="w-4 h-4" />
+                  导入未登录期间新增的 {localDraftCount} 条本地记录
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="w-full px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                退出 Google 账号登录
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                您当前处于本地浏览器试用模式。登录 Google 账号后，您的每条血糖记录与个人目标将在多设备间安全加密同步，不会因清理浏览器缓存而丢失。
+              </p>
+              <button
+                type="button"
+                onClick={onSignIn}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                使用 Google 账号登录并同步
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-3">
+          <h3 className="text-sm font-semibold text-slate-900">数据工具</h3>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            如果您希望快速体验分析图表，可以写入一套 14 天演示记录；在本地试用模式下也可以随时清空所有本地数据从零开始。
+          </p>
+          <div className="flex flex-wrap items-center gap-2.5 pt-1">
+            <button
+              type="button"
+              onClick={async () => {
+                await onImportSampleData();
+                setFeedback('已加载 14 天演示血糖记录');
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              加载 14 天演示数据
+            </button>
+
+            {!isCloudMode && (
+              <>
+                {confirmClearLocal ? (
+                  <div className="inline-flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClearLocalRecords();
+                        setConfirmClearLocal(false);
+                        setFeedback('已清空本地试用记录');
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      确认清空本地记录
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmClearLocal(false)}
+                      className="px-2 py-1.5 text-xs text-slate-600 hover:text-slate-900"
+                    >
+                      取消
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClearLocal(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-white border border-red-200 hover:bg-red-50 rounded-lg transition-colors whitespace-nowrap"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    清空本地记录
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="px-4 py-3 bg-slate-100/80 border border-slate-200/80 rounded-xl text-xs text-slate-500 leading-relaxed">
+          健康提示：本应用用于个人血糖日志记录与趋势统计分析，预估糖化血红蛋白（eA1c）与达标率仅供参考，不能替代医院检验或专业医生的临床诊疗建议。
+        </div>
+      </div>
+    </div>
+  );
+}
